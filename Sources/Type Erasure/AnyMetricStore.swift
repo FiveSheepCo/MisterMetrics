@@ -11,7 +11,7 @@ public struct AnyMetricStore: MetricStore {
         try box.record(metric, value: value)
     }
     
-    public func retrieveAll(between startDate: Date, and endDate: Date) throws -> [MetricEntry] {
-        try box.retrieveAll(between: startDate, and: endDate)
+    public func retrieveAll(from startDate: Date, until endDate: Date) throws -> [MetricEntry] {
+        try box.retrieveAll(from: startDate, until: endDate)
     }
 }

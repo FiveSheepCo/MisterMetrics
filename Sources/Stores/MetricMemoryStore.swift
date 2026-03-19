@@ -12,7 +12,7 @@ public class MetricMemoryStore: MetricStore {
     }
     
     @inlinable
-    public func retrieveAll(between startDate: Date, and endDate: Date) -> [MetricEntry] {
+    public func retrieveAll(from startDate: Date, until endDate: Date) -> [MetricEntry] {
         backingStorage.filter { entry in
             entry.timestamp >= startDate && entry.timestamp <= endDate
         }

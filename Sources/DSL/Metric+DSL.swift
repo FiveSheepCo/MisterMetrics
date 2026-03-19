@@ -10,10 +10,10 @@ extension Metric {
     
     @inlinable
     public func retrieveAll(
-        between startDate: Date = Date.distantPast,
-        and endDate: Date = Date.distantFuture,
+        from startDate: Date = Date.distantPast,
+        until endDate: Date = Date.distantFuture,
         in store: AnyMetricStore = MetricManager.global
     ) throws -> [ResolvedMetric<T>] {
-        try store.retrieveAll(for: self, between: startDate, and: endDate)
+        try store.retrieveAll(for: self, from: startDate, until: endDate)
     }
 }
