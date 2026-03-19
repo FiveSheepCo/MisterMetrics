@@ -4,7 +4,7 @@ import Foundation
 public struct Bucket: Equatable, Hashable, Sendable {
     let name: String
     
-    public init(name: String) {
+    public init(_ name: String) {
         self.name = name
     }
 }
