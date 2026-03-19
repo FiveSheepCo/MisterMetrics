@@ -14,14 +14,7 @@ public class MetricUserDefaultsStore: MetricStore {
     public init(userDefaults: UserDefaults, userDefaultKey: String) {
         self.backingStorage = userDefaults
         self.userDefaultKey = userDefaultKey
-        self.inMemoryRepresentation = {
-            if let data = userDefaults.data(forKey: userDefaultKey),
-               let cache = try? JSONDecoder().decode([MetricEntry].self, from: data) {
-                cache
-            } else {
-                []
-            }
-        }()
+        try? self.sync()
     }
     
     @inlinable
@@ -31,10 +24,22 @@ public class MetricUserDefaultsStore: MetricStore {
     }
     
     @inlinable
-    public func retrieveAll(from startDate: Date, until endDate: Date) -> [MetricEntry] {
+    public func retrieveAll(from startDate: Date, until endDate: Date) throws -> [MetricEntry] {
         inMemoryRepresentation.filter { entry in
             entry.timestamp >= startDate && entry.timestamp <= endDate
         }
+    }
+    
+    @inlinable
+    public func sync() throws {
+        self.inMemoryRepresentation = {
+            if let data = backingStorage.data(forKey: userDefaultKey),
+               let cache = try? JSONDecoder().decode([MetricEntry].self, from: data) {
+                cache
+            } else {
+                []
+            }
+        }()
     }
 }
 

@@ -17,6 +17,11 @@ public class MetricMemoryStore: MetricStore {
             entry.timestamp >= startDate && entry.timestamp <= endDate
         }
     }
+    
+    @inlinable
+    public func sync() throws {
+        // no-op for in-memory store
+    }
 }
 
 extension MetricStore where Self == MetricMemoryStore {

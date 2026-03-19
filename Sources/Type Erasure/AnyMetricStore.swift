@@ -14,4 +14,8 @@ public struct AnyMetricStore: MetricStore {
     public func retrieveAll(from startDate: Date, until endDate: Date) throws -> [MetricEntry] {
         try box.retrieveAll(from: startDate, until: endDate)
     }
+    
+    public func sync() throws {
+        try box.sync()
+    }
 }

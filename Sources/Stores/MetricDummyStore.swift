@@ -9,6 +9,9 @@ public struct MetricDummyStore: MetricStore {
     public func retrieveAll(from startDate: Date, until endDate: Date) throws -> [MetricEntry] {
         return []
     }
+    
+    public func sync() throws {
+    }
 }
 
 extension MetricStore where Self == MetricDummyStore {
