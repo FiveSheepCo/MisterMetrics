@@ -1,6 +1,6 @@
 import Foundation
 
-public struct ResolvedMetric<T: Decodable> {
+public struct ResolvedMetric<T: Decodable>: Sendable where T: MetricValue {
     private let metric: AnyMetric
     
     public let timestamp: Date
