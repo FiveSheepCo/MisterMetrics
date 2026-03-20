@@ -5,3 +5,9 @@ public protocol MetricStore: Sendable {
     func retrieveAll(from startDate: Date, until endDate: Date) async throws -> [MetricEntry]
     func sync() async throws
 }
+
+extension MetricStore {
+    public var erased: AnyMetricStore {
+        AnyMetricStore(self)
+    }
+}
