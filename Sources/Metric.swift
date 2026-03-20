@@ -9,3 +9,9 @@ public struct Metric<T>: Equatable, Hashable, Sendable where T: MetricValue {
         self.bucket = bucket
     }
 }
+
+extension Metric {
+    public var erased: AnyMetric {
+        AnyMetric(self)
+    }
+}
