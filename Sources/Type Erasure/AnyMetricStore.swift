@@ -11,7 +11,10 @@ public struct AnyMetricStore: MetricStore, Sendable {
         try await box.record(metric, value: value)
     }
     
-    public func retrieveAll(from startDate: Date, until endDate: Date) async throws -> [MetricEntry] {
+    public func retrieveAll(
+        from startDate: Date = .distantPast,
+        until endDate: Date = .distantFuture
+    ) async throws -> [MetricEntry] {
         try await box.retrieveAll(from: startDate, until: endDate)
     }
     
