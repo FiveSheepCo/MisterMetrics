@@ -1,6 +1,6 @@
 import Foundation
 
-public struct MetricEntry: Codable {
+public struct MetricEntry: Codable, Sendable {
     public let timestamp: Date
     public let metric: AnyMetric
     public let value: Data

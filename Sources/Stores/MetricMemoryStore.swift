@@ -1,25 +1,23 @@
 import Foundation
 
-public class MetricMemoryStore: MetricStore {
-    public var backingStorage: [MetricEntry] = []
+public final actor MetricMemoryStore: MetricStore {
+    private var backingStorage: [MetricEntry] = []
     
     public init() {}
     
-    @inlinable
-    public func record<T>(_ metric: Metric<T>, value: T) throws where T: MetricValue {
+    public func record<T>(_ metric: Metric<T>, value: T) async throws where T: MetricValue {
         let entry = MetricEntry(metric: metric, value: value)
         backingStorage.append(entry)
     }
     
-    @inlinable
-    public func retrieveAll(from startDate: Date, until endDate: Date) -> [MetricEntry] {
+    public func retrieveAll(from startDate: Date, until endDate: Date) async throws -> [MetricEntry] {
         backingStorage.filter { entry in
             entry.timestamp >= startDate && entry.timestamp <= endDate
         }
     }
     
     @inlinable
-    public func sync() throws {
+    public func sync() async throws {
         // no-op for in-memory store
     }
 }

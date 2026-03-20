@@ -1,50 +1,68 @@
 import Foundation
 
-public class MetricUserDefaultsStore: MetricStore {
-    public let backingStorage: UserDefaults
-    public let userDefaultKey: String
+public final actor MetricUserDefaultsStore: MetricStore {
+    @MainActor private var backingStorage: UserDefaults!
+    @MainActor private var inMemoryRepresentation: [MetricEntry] = []
     
-    public var inMemoryRepresentation: [MetricEntry] = [] {
-        didSet {
-            guard let codedEntries = try? JSONEncoder().encode(inMemoryRepresentation) else { return }
-            backingStorage.setValue(codedEntries, forKey: userDefaultKey)
+    private let userDefaultKey: String
+    
+    @MainActor
+    public init(userDefaults: sending UserDefaults, userDefaultKey: String) throws {
+        self.backingStorage = userDefaults
+        self.userDefaultKey = userDefaultKey
+        self.syncSync()
+    }
+    
+    public func record<T>(_ metric: Metric<T>, value: T) async throws where T: MetricValue {
+        let entry = MetricEntry(metric: metric, value: value)
+        let inMemoryData: [MetricEntry] = await MainActor.run {
+            inMemoryRepresentation.append(entry)
+            return inMemoryRepresentation
+        }
+        let data = try JSONEncoder().encode(inMemoryData)
+        await MainActor.run {
+            backingStorage.setValue(data, forKey: userDefaultKey)
         }
     }
     
-    public init(userDefaults: UserDefaults, userDefaultKey: String) {
-        self.backingStorage = userDefaults
-        self.userDefaultKey = userDefaultKey
-        try? self.sync()
-    }
-    
-    @inlinable
-    public func record<T>(_ metric: Metric<T>, value: T) throws where T: MetricValue {
-        let entry = MetricEntry(metric: metric, value: value)
-        self.inMemoryRepresentation.append(entry)
-    }
-    
-    @inlinable
-    public func retrieveAll(from startDate: Date, until endDate: Date) throws -> [MetricEntry] {
-        inMemoryRepresentation.filter { entry in
+    public func retrieveAll(from startDate: Date, until endDate: Date) async throws -> [MetricEntry] {
+        let inMemoryData: [MetricEntry] = await MainActor.run {
+            inMemoryRepresentation
+        }
+        return inMemoryData.filter { entry in
             entry.timestamp >= startDate && entry.timestamp <= endDate
         }
     }
     
-    @inlinable
-    public func sync() throws {
-        self.inMemoryRepresentation = {
-            if let data = backingStorage.data(forKey: userDefaultKey),
-               let cache = try? JSONDecoder().decode([MetricEntry].self, from: data) {
+    @MainActor
+    private func syncSync() {
+        let data = backingStorage.data(forKey: userDefaultKey)
+        inMemoryRepresentation = if let data, let cache = try? JSONDecoder().decode([MetricEntry].self, from: data) {
+            cache
+        } else {
+            []
+        }
+    }
+    
+    public func sync() async throws {
+        let data = await Task { @MainActor in
+            backingStorage.data(forKey: userDefaultKey)
+        }.value
+        let decodedData: [MetricEntry] = {
+            if let data, let cache = try? JSONDecoder().decode([MetricEntry].self, from: data) {
                 cache
             } else {
                 []
             }
         }()
+        await MainActor.run {
+            inMemoryRepresentation = decodedData
+        }
     }
 }
 
 extension MetricStore where Self == MetricUserDefaultsStore {
-    public static func userDefaults(_ userDefaults: UserDefaults, key: String) -> MetricUserDefaultsStore {
-        MetricUserDefaultsStore(userDefaults: userDefaults, userDefaultKey: key)
+    public static func userDefaults(_ userDefaults: sending UserDefaults, key: String) async throws -> MetricUserDefaultsStore {
+        try await MetricUserDefaultsStore(userDefaults: userDefaults, userDefaultKey: key)
     }
 }

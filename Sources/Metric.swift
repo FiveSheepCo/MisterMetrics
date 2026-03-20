@@ -1,7 +1,6 @@
 import Foundation
 
-public struct Metric<T>: Equatable, Hashable, Sendable
-where T: MetricValue {
+public struct Metric<T>: Equatable, Hashable, Sendable where T: MetricValue {
     public let name: String
     public let bucket: Bucket?
     

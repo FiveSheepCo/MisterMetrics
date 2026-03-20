@@ -1,18 +1,18 @@
 import Foundation
 
-@MainActor
 public enum MetricManager {
-    private static var uncheckedGlobal: AnyMetricStore?
+    private nonisolated(unsafe) static var uncheckedGlobal: AnyMetricStore?
     
     public static var global: AnyMetricStore {
         guard let checkedGlobal = uncheckedGlobal else {
             assertionFailure("Global MetricStore was accessed before being installed. Metrics will not be recorded.")
-            return AnyMetricStore(MetricDummyStore())
+            return AnyMetricStore(MetricNoopStore())
         }
         return checkedGlobal
     }
     
-    public static func installGlobal(_ store: some MetricStore) {
+    @MainActor
+    public static func installGlobal(_ store: sending some MetricStore) {
         Self.uncheckedGlobal = AnyMetricStore(store)
     }
 }
