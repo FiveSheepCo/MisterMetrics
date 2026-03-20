@@ -13,6 +13,9 @@ public struct ResolvedMetric<T: Decodable>: Sendable where T: MetricValue {
     }
 }
 
+extension ResolvedMetric: Equatable where T: Equatable {}
+extension ResolvedMetric: Hashable where T: Hashable {}
+
 extension ResolvedMetric {
     
     public var name: String {
