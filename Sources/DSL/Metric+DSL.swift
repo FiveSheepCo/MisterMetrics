@@ -4,7 +4,7 @@ private let metricTaskQueue = TaskQueue()
 
 extension Metric {
     
-    public func record(_ value: T, in store: AnyMetricStore? = nil) throws {
+    public func record(_ value: T, in store: AnyMetricStore? = nil) {
         let store = store ?? MetricManager.global
         Task { @MainActor in
             await metricTaskQueue.spawnTask {
