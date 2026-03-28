@@ -21,4 +21,8 @@ public struct AnyMetricStore: MetricStore, Sendable {
     public func sync() async throws {
         try await box.sync()
     }
+    
+    public func unbox<T: MetricStore>() -> T? {
+        box as? T
+    }
 }
