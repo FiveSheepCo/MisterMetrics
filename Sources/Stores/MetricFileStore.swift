@@ -83,34 +83,71 @@ public final actor MetricFileStore: MetricStore {
     }
     
     public func retrieveAll(from startDate: Date, until endDate: Date) async throws -> [MetricEntry] {
-        let handle = try FileHandle(forReadingFrom: file)
-        defer {
-            try? handle.close()
+        let fileHandle = try FileHandle(forReadingFrom: file)
+        defer { try? fileHandle.close() }
+        var dataChunks = [Data]()
+        for try await line in fileHandle.bytes.lines {
+            try Task.checkCancellation()
+            let data = Data(line.utf8)
+            dataChunks.append(data)
         }
-        
-        guard let data = try handle.readToEnd(),
-              let dataString = String(data: data, encoding: .utf8)
-        else {
-            return []
-        }
-        
-        let lines = dataString.split(separator: "\n")
-        
-        var entries: [MetricEntry] = []
-        entries.reserveCapacity(lines.count)
-        
         let decoder = JSONDecoder()
-        for line in dataString.split(separator: "\n") {
-            guard let lineData = line.data(using: .utf8),
-                  let entry = try? decoder.decode(MetricEntry.self, from: lineData),
-                  entry.timestamp >= startDate && entry.timestamp <= endDate
-            else {
-                continue
+        return try await withThrowingTaskGroup { group in
+            for (offset, data) in dataChunks.enumerated() {
+                group.addTask(priority: .userInitiated) {
+                    let entry = try decoder.decode(MetricEntry.self, from: data)
+                    let inRange = entry.timestamp >= startDate && entry.timestamp <= endDate
+                    return (offset: offset, entry: entry, inRange: inRange)
+                }
             }
-            entries.append(entry)
+            var dataPoints = [(offset: Int, entry: MetricEntry)]()
+            for try await dataPoint in group where dataPoint.inRange {
+                dataPoints.append((offset: dataPoint.offset, entry: dataPoint.entry))
+            }
+            return dataPoints
+                .sorted(using: SortDescriptor(\.offset))
+                .map(\.entry)
         }
-        
-        return entries
+    }
+    
+    public func streamAll(from startDate: Date, until endDate: Date) -> AsyncThrowingStream<MetricEntry, any Error> {
+        let dataStream = AsyncThrowingStream<Data, any Error> { continuation in
+            Task {
+                do {
+                    let fileHandle = try FileHandle(forReadingFrom: file)
+                    defer { try? fileHandle.close() }
+                    for try await line in fileHandle.bytes.lines {
+                        try Task.checkCancellation()
+                        let data = Data(line.utf8)
+                        continuation.yield(data)
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+        let decodingStream = AsyncThrowingStream<MetricEntry, any Error> { continuation in
+            Task {
+                let decoder = JSONDecoder()
+                do {
+                    for try await data in dataStream {
+                        let entry = try decoder.decode(MetricEntry.self, from: data)
+                        if entry.timestamp > endDate {
+                            continuation.finish()
+                            return
+                        }
+                        if entry.timestamp >= startDate {
+                            continuation.yield(entry)
+                        }
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+        return decodingStream
     }
     
     public func sync() async throws {
