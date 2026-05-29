@@ -45,9 +45,9 @@ public final actor MetricUserDefaultsStore: MetricStore {
     }
     
     public func sync() async throws {
-        let data = await Task { @MainActor in
+        let data = await MainActor.run {
             backingStorage.data(forKey: userDefaultKey)
-        }.value
+        }
         let decodedData: [MetricEntry] = {
             if let data, let cache = try? JSONDecoder().decode([MetricEntry].self, from: data) {
                 cache
@@ -57,6 +57,12 @@ public final actor MetricUserDefaultsStore: MetricStore {
         }()
         await MainActor.run {
             inMemoryRepresentation = decodedData
+        }
+    }
+    
+    public func clear() async throws {
+        await MainActor.run {
+            backingStorage.removeObject(forKey: userDefaultKey)
         }
     }
 }

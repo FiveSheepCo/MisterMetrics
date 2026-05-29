@@ -20,6 +20,10 @@ public final actor MetricMemoryStore: MetricStore {
     public func sync() async throws {
         // no-op for in-memory store
     }
+    
+    public func clear() async throws {
+        backingStorage.removeAll()
+    }
 }
 
 extension MetricStore where Self == MetricMemoryStore {

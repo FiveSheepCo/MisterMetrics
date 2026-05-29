@@ -10,6 +10,17 @@ public final actor MetricFileStore: MetricStore {
         self.file = file
     }
     
+    private func using<T>(_ handle: FileHandle, _ action: () async throws -> T) async rethrows -> T {
+        do {
+            let result = try await action()
+            try? handle.close()
+            return result
+        } catch {
+            try? handle.close()
+            throw error
+        }
+    }
+    
     private func readFirstLine(of handle: FileHandle, chunkSize: Int = 4096) throws -> Data? {
         var buffer = Data()
         while true {
@@ -28,20 +39,20 @@ public final actor MetricFileStore: MetricStore {
         }
     }
     
-    private func findOldestEntry() throws -> MetricEntry? {
+    private func findOldestEntry() async throws -> MetricEntry? {
         guard FileManager.default.fileExists(atPath: file.path(percentEncoded: false)) else { return nil }
         
         let handle = try FileHandle(forReadingFrom: file)
-        defer { try? handle.close() }
-        
-        guard
-            let data = try? readFirstLine(of: handle),
-            let entry = try? JSONDecoder().decode(MetricEntry.self, from: data)
-        else {
-            return nil
+        return await using(handle) {
+            guard
+                let data = try? readFirstLine(of: handle),
+                let entry = try? JSONDecoder().decode(MetricEntry.self, from: data)
+            else {
+                return nil
+            }
+            
+            return entry
         }
-        
-        return entry
     }
     
     private func recordBatch(_ batch: [MetricEntry]) async throws {
@@ -62,13 +73,11 @@ public final actor MetricFileStore: MetricStore {
         }
         
         let handle = try FileHandle(forWritingTo: file)
-        defer {
-            try? handle.close()
-        }
-        
-        try handle.seekToEnd()
-        for jsonLine in jsonLines {
-            try handle.write(contentsOf: jsonLine)
+        try await using(handle) {
+            try handle.seekToEnd()
+            for jsonLine in jsonLines {
+                try handle.write(contentsOf: jsonLine)
+            }
         }
     }
     
@@ -84,29 +93,30 @@ public final actor MetricFileStore: MetricStore {
     
     public func retrieveAll(from startDate: Date, until endDate: Date) async throws -> [MetricEntry] {
         let fileHandle = try FileHandle(forReadingFrom: file)
-        defer { try? fileHandle.close() }
-        var dataChunks = [Data]()
-        for try await line in fileHandle.bytes.lines {
-            try Task.checkCancellation()
-            let data = Data(line.utf8)
-            dataChunks.append(data)
-        }
-        let decoder = JSONDecoder()
-        return try await withThrowingTaskGroup { group in
-            for (offset, data) in dataChunks.enumerated() {
-                group.addTask(priority: .userInitiated) {
-                    let entry = try decoder.decode(MetricEntry.self, from: data)
-                    let inRange = entry.timestamp >= startDate && entry.timestamp <= endDate
-                    return (offset: offset, entry: entry, inRange: inRange)
+        return try await using(fileHandle) {
+            var dataChunks = [Data]()
+            for try await line in fileHandle.bytes.lines {
+                try Task.checkCancellation()
+                let data = Data(line.utf8)
+                dataChunks.append(data)
+            }
+            let decoder = JSONDecoder()
+            return try await withThrowingTaskGroup { group in
+                for (offset, data) in dataChunks.enumerated() {
+                    group.addTask(priority: .userInitiated) {
+                        let entry = try decoder.decode(MetricEntry.self, from: data)
+                        let inRange = entry.timestamp >= startDate && entry.timestamp <= endDate
+                        return (offset: offset, entry: entry, inRange: inRange)
+                    }
                 }
+                var dataPoints = [(offset: Int, entry: MetricEntry)]()
+                for try await dataPoint in group where dataPoint.inRange {
+                    dataPoints.append((offset: dataPoint.offset, entry: dataPoint.entry))
+                }
+                return dataPoints
+                    .sorted(using: SortDescriptor(\.offset))
+                    .map(\.entry)
             }
-            var dataPoints = [(offset: Int, entry: MetricEntry)]()
-            for try await dataPoint in group where dataPoint.inRange {
-                dataPoints.append((offset: dataPoint.offset, entry: dataPoint.entry))
-            }
-            return dataPoints
-                .sorted(using: SortDescriptor(\.offset))
-                .map(\.entry)
         }
     }
     
@@ -115,13 +125,14 @@ public final actor MetricFileStore: MetricStore {
             Task {
                 do {
                     let fileHandle = try FileHandle(forReadingFrom: file)
-                    defer { try? fileHandle.close() }
-                    for try await line in fileHandle.bytes.lines {
-                        try Task.checkCancellation()
-                        let data = Data(line.utf8)
-                        continuation.yield(data)
+                    try await using(fileHandle) {
+                        for try await line in fileHandle.bytes.lines {
+                            try Task.checkCancellation()
+                            let data = Data(line.utf8)
+                            continuation.yield(data)
+                        }
+                        continuation.finish()
                     }
-                    continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
                 }
@@ -152,11 +163,16 @@ public final actor MetricFileStore: MetricStore {
     
     public func sync() async throws {
         let handle = try FileHandle(forUpdating: file)
-        defer {
-            try? handle.close()
+        try await using(handle) {
+            try handle.synchronize()
         }
-        
-        try handle.synchronize()
+    }
+    
+    public func clear() async throws {
+        let handle = try FileHandle(forUpdating: file)
+        try await using(handle) {
+            try handle.truncate(atOffset: 0)
+        }
     }
     
     public func optimize(maxRetentionDays: Int) async throws {
@@ -170,7 +186,7 @@ public final actor MetricFileStore: MetricStore {
         }()
         
         // Quick check whether optimization is needed without reading the whole file
-        guard let oldestEntry = try findOldestEntry(), oldestEntry.timestamp < cutoffDate else {
+        guard let oldestEntry = try await findOldestEntry(), oldestEntry.timestamp < cutoffDate else {
             return
         }
         
@@ -179,20 +195,20 @@ public final actor MetricFileStore: MetricStore {
         
         // Open file for writing
         let handle = try FileHandle(forWritingTo: file)
-        defer {
-            try? handle.close()
-        }
         
-        // Truncate file
-        try handle.truncate(atOffset: 0)
-        
-        // Write back surviving entries
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = .sortedKeys
-        for entry in survivingEntries {
-            var jsonData = try encoder.encode(entry)
-            jsonData.append(contentsOf: [0x0A])
-            try handle.write(contentsOf: jsonData)
+        try await using(handle) {
+            
+            // Truncate file
+            try handle.truncate(atOffset: 0)
+            
+            // Write back surviving entries
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = .sortedKeys
+            for entry in survivingEntries {
+                var jsonData = try encoder.encode(entry)
+                jsonData.append(contentsOf: [0x0A])
+                try handle.write(contentsOf: jsonData)
+            }
         }
     }
 }
